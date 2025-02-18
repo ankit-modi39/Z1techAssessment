@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { TwitterApi } from "twitter-api-v2";
+import { TwitterApi, ApiResponseError } from "twitter-api-v2";
 
 interface ImageData {
   [key: string]: string;
 }
+
+interface TwitterError extends Error {
+  code?: number;
+}
+
+type MediaIdsTuple = [string] | [string, string] | [string, string, string] | [string, string, string, string];
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,7 +38,7 @@ export async function POST(request: NextRequest) {
     try {
       // Upload all images and collect their media IDs
       const mediaIds = await Promise.all(
-        Object.entries(images).map(async ([dimension, dataUrl]) => {
+        Object.entries(images).map(async ([_, dataUrl]) => {
           // Convert data URL to buffer
           const base64Data = (dataUrl as string).split(",")[1];
           const buffer = Buffer.from(base64Data, "base64");
@@ -45,29 +51,43 @@ export async function POST(request: NextRequest) {
         })
       );
 
-      // Ensure we only use up to 4 media IDs and convert to tuple
-      const mediaIdsArray = mediaIds.slice(0, 4) as [string, ...string[]];
-
+      // Ensure we only use up to 4 media IDs and convert to the correct tuple type
+      const slicedMediaIds = mediaIds.slice(0, 4);
+      const mediaIdsTuple = slicedMediaIds.length === 1 
+        ? [slicedMediaIds[0]]
+        : slicedMediaIds.length === 2
+        ? [slicedMediaIds[0], slicedMediaIds[1]]
+        : slicedMediaIds.length === 3
+        ? [slicedMediaIds[0], slicedMediaIds[1], slicedMediaIds[2]]
+        : slicedMediaIds.length === 4
+        ? [slicedMediaIds[0], slicedMediaIds[1], slicedMediaIds[2], slicedMediaIds[3]]
+        : [slicedMediaIds[0]];
+      
       // Post tweet with images
       const tweet = await client.v2.tweet("Check out these resized images! 🖼️ #ImageResizer", {
-        media: { media_ids: mediaIdsArray }
+        media: { media_ids: mediaIdsTuple as MediaIdsTuple }
       });
 
       return NextResponse.json({ success: true, tweet });
-    } catch (twitterError: any) {
-      console.error("Twitter API error:", twitterError);
-      return NextResponse.json(
-        { 
-          error: "Failed to post to Twitter",
-          details: twitterError.message
-        },
-        { status: twitterError.code || 500 }
-      );
+    } catch (error) {
+      if (error instanceof ApiResponseError) {
+        console.error("Twitter API error:", error);
+        return NextResponse.json(
+          { 
+            error: "Failed to post to Twitter",
+            details: error.message,
+            code: error.code
+          },
+          { status: error.code || 500 }
+        );
+      }
+      throw error;
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("Server error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
     return NextResponse.json(
-      { error: "Internal server error", details: error.message },
+      { error: "Internal server error", details: errorMessage },
       { status: 500 }
     );
   }
