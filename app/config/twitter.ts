@@ -3,5 +3,5 @@ export const TWITTER_CONFIG = {
   clientSecret: process.env.TWITTER_CLIENT_SECRET || "",
   callbackUrl:
     process.env.NEXT_PUBLIC_TWITTER_CALLBACK_URL ||
-    "http://localhost:3000/api/auth/twitter/callback",
+    "https://z1tech-assessment.vercel.app/api/auth/twitter/callback",
 };
