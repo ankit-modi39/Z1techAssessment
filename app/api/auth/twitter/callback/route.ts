@@ -20,27 +20,10 @@ export async function GET(request: NextRequest) {
     }
 
     const storedState = request.cookies.get("twitter_oauth_state")?.value;
-    const codeVerifier = request.cookies.get(
-      "twitter_oauth_code_verifier"
-    )?.value;
+    const codeVerifier = request.cookies.get("twitter_oauth_code_verifier")?.value;
 
-    console.log("OAuth state check:", {
-      receivedState: state,
-      storedState,
-      hasCodeVerifier: !!codeVerifier,
-      code: !!code,
-    });
-
-    if (
-      !state ||
-      !storedState ||
-      !code ||
-      !codeVerifier ||
-      state !== storedState
-    ) {
-      return NextResponse.redirect(
-        new URL("/?error=invalid_state", request.url)
-      );
+    if (!state || !storedState || !code || !codeVerifier || state !== storedState) {
+      return NextResponse.redirect(new URL("/?error=invalid_state", request.url));
     }
 
     const tokenUrl = "https://api.twitter.com/2/oauth2/token";
@@ -53,65 +36,57 @@ export async function GET(request: NextRequest) {
       code_verifier: codeVerifier,
     });
 
-    console.log("Token request params:", {
-      clientId: TWITTER_CONFIG.clientId,
-      callbackUrl: TWITTER_CONFIG.callbackUrl,
-      hasSecret: !!TWITTER_CONFIG.clientSecret,
-    });
-
     const tokenResponse = await fetch(tokenUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${Buffer.from(
+          `${TWITTER_CONFIG.clientId}:${TWITTER_CONFIG.clientSecret}`
+        ).toString("base64")}`,
       },
       body: params.toString(),
     });
 
     if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      console.error("Token response error:", {
-        status: tokenResponse.status,
-        statusText: tokenResponse.statusText,
-        error: errorText,
-      });
-      throw new Error(`Failed to get access token: ${errorText}`);
+      const errorData = await tokenResponse.text();
+      console.error("Token exchange failed:", errorData);
+      return NextResponse.redirect(
+        new URL("/?error=token_exchange_failed", request.url)
+      );
     }
 
     const { access_token, refresh_token } = await tokenResponse.json();
 
-    // Create base URL for redirect
-    const baseUrl = request.nextUrl.origin;
-    const response = NextResponse.redirect(baseUrl);
+    // Create the response with redirect
+    const response = NextResponse.redirect(new URL("/", request.url));
 
-    // Set cookies with proper configuration
-    const cookieOptions = {
+    // Set the access token cookie with proper configuration
+    response.cookies.set("twitter_access_token", access_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 1 week
-    };
+      sameSite: "lax",
+      maxAge: 7200, // 2 hours
+    });
 
-    response.cookies.set("twitter_access_token", access_token, cookieOptions);
-
+    // Set the refresh token if provided
     if (refresh_token) {
-      response.cookies.set(
-        "twitter_refresh_token",
-        refresh_token,
-        cookieOptions
-      );
+      response.cookies.set("twitter_refresh_token", refresh_token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60, // 30 days
+      });
     }
+
+    // Clear the state and code verifier cookies
+    response.cookies.delete("twitter_oauth_state");
+    response.cookies.delete("twitter_oauth_code_verifier");
 
     return response;
   } catch (error) {
     console.error("Twitter callback error:", error);
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
     return NextResponse.redirect(
-      new URL(
-        "/?error=auth_failed&message=" + encodeURIComponent(errorMessage),
-        request.url
-      )
+      new URL("/?error=callback_error", request.url)
     );
   }
 }
