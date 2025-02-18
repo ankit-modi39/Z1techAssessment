@@ -5,10 +5,6 @@ interface ImageData {
   [key: string]: string;
 }
 
-interface TwitterError extends Error {
-  code?: number;
-}
-
 type MediaIdsTuple = [string] | [string, string] | [string, string, string] | [string, string, string, string];
 
 export async function POST(request: NextRequest) {
@@ -38,7 +34,7 @@ export async function POST(request: NextRequest) {
     try {
       // Upload all images and collect their media IDs
       const mediaIds = await Promise.all(
-        Object.entries(images).map(async ([_, dataUrl]) => {
+        Object.entries(images).map(async ([, dataUrl]) => {
           // Convert data URL to buffer
           const base64Data = (dataUrl as string).split(",")[1];
           const buffer = Buffer.from(base64Data, "base64");
